@@ -38,17 +38,38 @@
 # mostrar data e hora de todas as transações
 
 
-
 from abc import ABC, abstractmethod
 from datetime import datetime
 import textwrap
 
+class ContasIterador:
+    def __init__(self, contas):
+        self.contas = contas
+        self._index = 0
+    
+    def __iter__(self):
+        return self
+    
+    def __iter__(self):
+        try:
+            conta = self.contas[self._index]
+            return f"""\
+            Agência:\t{conta.agencia}
+            Número:\t\t{conta.numero}
+            Titular:\t{conta.cliente.nome}
+            saldo:\t\tR$ {conta.saldo:.2f}
+        """
+
+        except IndexError:
+            raise StopIteration
+        finally:
+            self._index += 1
+        
 
 class Cliente:
     def __init__(self, endereco):
         self.endereco = endereco
         self.contas = []
-        self.indice_conta = 0
 
     def realizar_transacao(self, conta, transacao):
         if len(conta.historico.transacoes_do_dia()) >= 10:
@@ -59,14 +80,12 @@ class Cliente:
     def adicionar_conta(self, conta):
         self.contas.append(conta)
 
-
 class PessoaFisica(Cliente):
     def __init__(self, nome, data_nascimento, cpf, endereco):
         super().__init__(endereco)
         self.nome = nome
         self.data_nascimento = data_nascimento
         self.cpf = cpf
-
 
 class Conta:
     def __init__(self, numero, cliente):
@@ -126,7 +145,6 @@ class Conta:
             print("\n@@@ Operação falhou! O valor informado é inválido. @@@")
             return False
 
-
 class ContaCorrente(Conta):
     def __init__(self, numero, cliente, limite=500, limite_saques=3):
         super().__init__(numero, cliente)
@@ -154,7 +172,6 @@ Agência: {self.agencia}
 Conta Corrente: {self.numero}
 Titular: {self.cliente.nome}"""
 
-
 class Historico:
     def __init__(self):
         self._transacoes = []
@@ -174,17 +191,10 @@ class Historico:
         for transacao in self._transacoes:
             if tipo_transacao is None or transacao["tipo"].lower() == tipo_transacao.lower():
                 yield transacao
-    
+
     def transacoes_do_dia(self):
-        data_atual = datetime.utcnow().date()
-        transacoes = []
-        for transacao in self._transacoes:
-            data_transacao = datetime.striptime(transacao["data"], "%d-%m-%Y %H:%M:S").date()
-            if data_atual == data_transacao:
-                transacoes.append(transacao)
-        return transacoes
-
-
+        hoje = datetime.now().strftime("%d-%m-%y")
+        return [transacao for transacao in self._transacoes if transacao["data"].startswith(hoje)]
 
 class Transacao(ABC):
     @property
@@ -195,7 +205,6 @@ class Transacao(ABC):
     @abstractmethod
     def registrar(self, conta):
         pass
-
 
 class Saque(Transacao):
     def __init__(self, valor):
@@ -210,7 +219,6 @@ class Saque(Transacao):
         if sucesso_transacao:
             conta.historico.adicionar_transacao(self)
 
-
 class Deposito(Transacao):
     def __init__(self, valor):
         self._valor = valor
@@ -224,6 +232,12 @@ class Deposito(Transacao):
         if sucesso_transacao:
             conta.historico.adicionar_transacao(self)
 
+def log_transacao(func):
+    def envelope(*args, **kwargs):
+        resultado = func(*args, **kwargs)
+        print(f"{datetime.now()}: {func.__name__.upper()}")
+        return resultado
+    return envelope
 
 def recuperar_conta_cliente(cliente):
     if not cliente.contas:
@@ -232,11 +246,11 @@ def recuperar_conta_cliente(cliente):
 
     return cliente.contas[0]
 
-
 def filtrar_cliente(cpf, clientes):
     clientes_filtrados = [cliente for cliente in clientes if cliente.cpf == cpf]
     return clientes_filtrados[0] if clientes_filtrados else None
 
+@log_transacao
 def sacar(clientes):
     cpf = input("Informe o CPF do cliente: ")
     cliente = filtrar_cliente(cpf, clientes)
@@ -254,7 +268,6 @@ def sacar(clientes):
 
     cliente.realizar_transacao(conta, transacao)
 
-
 def exibir_extrato(clientes):
     cpf = input("Informe o CPF do cliente: ")
     cliente = filtrar_cliente(cpf, clientes)
@@ -270,18 +283,15 @@ def exibir_extrato(clientes):
     print("\n======================= EXTRATO ==========================")
 
     extrato = ""
-    tem_transacao = False
-    if not transacao in conta.historico.gerar_relatorio():
-        tem_transacao = True
-        extrato += f"\n {transacao['data']}\n{transacao['tipo']}:\n\tR$ {transacao['valor']:.2f}"
-    else:
-        for transacao in transacao:
-            extrato = "Não foram realizadas movimentações"
+    for transacao in conta.historico.gerar_relatorio():
+        extrato += f"\n{transacao['tipo']}:\n\tR${transacao['valor']:.2f}"
+    if not extrato:
+        extrato = "Não foram realizadas movimentações"
     print(extrato)
     print(f"\nSaldo:\n\t R$ {conta.saldo:.2f}")
     print("============================================================")
 
-
+@log_transacao
 def criar_cliente(clientes):
     cpf = input("Informe o CPF (Somente números): ")
     cliente = filtrar_cliente(cpf, clientes)
@@ -299,7 +309,7 @@ def criar_cliente(clientes):
 
     print("=== Usuário criado com sucesso! ===")
 
-
+@log_transacao
 def criar_conta(numero_conta, clientes, contas):
     cpf = input("Informe o CPF do cliente: ")
     cliente = filtrar_cliente(cpf, clientes)
@@ -314,12 +324,10 @@ def criar_conta(numero_conta, clientes, contas):
 
     print("=== Conta criada com sucesso! ===")
 
-
 def listar_contas(contas):
-    for conta in contas:
+    for conta in ContasIterador(contas)
         print("=" * 100)
         print(textwrap.dedent(str(conta)))
-
 
 def menu():
     menu = """\n
@@ -336,7 +344,7 @@ def menu():
     => """
     return input(textwrap.dedent(menu))
 
-
+@log_transacao
 def depositar(clientes):
     cpf = input("Informe o CPF do cliente: ")
     cliente = filtrar_cliente(cpf, clientes)
@@ -352,7 +360,6 @@ def depositar(clientes):
     if not conta:
         return
     cliente.realizar_transacao(conta, transacao)
-
 
 def main():
     clientes = []
@@ -378,6 +385,5 @@ def main():
             break
         else:
             print("Operação inválida, por favor selecione novamente a operação desejada.")
-
 
 main()
